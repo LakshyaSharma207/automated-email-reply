@@ -1,0 +1,7 @@
+.vscode
+vectordb/
+.DS_Store
+.venv
+__pycache__/
+token files/
+client_secret.json
