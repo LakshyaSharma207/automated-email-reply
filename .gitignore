@@ -5,3 +5,4 @@ vectordb/
 __pycache__/
 token files/
 client_secret.json
+.env

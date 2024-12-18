@@ -4,4 +4,5 @@ google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 chromadb
-langchain
+langchain_community
+langchain-huggingface
