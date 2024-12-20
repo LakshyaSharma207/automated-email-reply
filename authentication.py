@@ -36,7 +36,7 @@ def create_service(client_secret_file, api_name, api_version, *scopes, prefix=''
 
     # Load existing credentials if available
     if os.path.exists(os.path.join(working_dir, token_dir, token_file)):
-        print("EXISTS")
+        # print("EXISTS")
         creds = Credentials.from_authorized_user_file(os.path.join(working_dir, token_dir, token_file), SCOPES)
     
     # Refresh or create new credentials if needed
