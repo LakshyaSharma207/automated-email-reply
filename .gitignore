@@ -6,3 +6,5 @@ __pycache__/
 token files/
 client_secret.json
 .env
+image_attachments/
+audio_attachments/
