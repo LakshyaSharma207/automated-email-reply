@@ -11,9 +11,6 @@ import signal
 
 # initialize LLM
 from langchain_huggingface import HuggingFaceEndpoint
-repo_id = "mistralai/Mistral-7B-Instruct-v0.3"
-llm = HuggingFaceEndpoint(repo_id=repo_id, max_new_tokens=155, temperature=0.7)
-audio_url = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo'
 
 app = Flask(__name__)
 
@@ -27,6 +24,7 @@ Returns:
     str: The transcribed text if successful, None otherwise.
 """
 def transcribe_audio(audio_file_path):
+    audio_url = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo'
     with open(audio_file_path, 'rb') as audio_file:
         audio_data = audio_file.read()
 
@@ -38,6 +36,35 @@ def transcribe_audio(audio_file_path):
     else:
         print(f"Error: {response.status_code}, {response.text}")
         return None
+
+from PIL import Image
+from transformers import BlipProcessor, BlipForConditionalGeneration
+
+"""
+Generates captions for images that may be in the email using a model that is ran locally.
+
+(Using endpoints for Blip image caption model doesn't work as intended so downloading instead)
+"""
+def generate_image_captions(img_path):
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
+    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-large")
+
+    raw_image = Image.open(img_path).convert('RGB')
+
+    # conditional image captioning
+    text = "an image of"
+    inputs = processor(raw_image, text, return_tensors="pt")
+
+    out = model.generate(**inputs)
+    print("Conditional caption:", processor.decode(out[0], skip_special_tokens=True))
+
+    # unconditional image captioning
+    inputs = processor(raw_image, return_tensors="pt")
+
+    out = model.generate(**inputs)
+    caption = processor.decode(out[0], skip_special_tokens=True)
+
+    return caption
 
 """
 Fetches unread messages from the user's inbox and extracts relevant information.
@@ -53,7 +80,7 @@ def get_unread_messages():
             q='is:unread in:inbox'
         ).execute()
         messages = results.get('messages', [])
-        
+
         if messages:
             for message in messages:
                 msg = service.users().messages().get(
@@ -101,6 +128,10 @@ def get_unread_messages():
                                 f.write(file_data)
                             new_email['images'].append(save_location)
 
+                            caption = generate_image_captions(save_location)
+                            if caption:
+                                new_email['body'] += f"\nCaption of included image: {caption}. "
+
                         if part['mimeType'].startswith('audio/'):
                             attachment_id = part['body']['attachmentId']
                             response = service.users().messages().attachments().get(
@@ -122,23 +153,26 @@ def get_unread_messages():
                             # Transcribe the audio and add the transcription to the email
                             transcription = transcribe_audio(save_location)
                             if transcription:
-                                new_email['body'] += f"\n\nTranscription of audio: {transcription}. "
+                                new_email['body'] += f"\nTranscription of included audio: {transcription}. "
 
                         # get text body
                         if 'parts' in part:
                             for subpart in part['parts']:
                                 if subpart['mimeType'] == 'text/plain':
                                     if 'data' in subpart['body']:
-                                        new_email['body'] += base64.urlsafe_b64decode(subpart['body']['data']).decode('UTF-8')
+                                        textBody = base64.urlsafe_b64decode(subpart['body']['data']).decode('UTF-8')
+                                        new_email['body'] += f"\nText body of email: {textBody}. "
                                     else:
                                         print("No data found in the subpart body.")
+
                         elif part['mimeType'] == 'text/plain':
                             if 'data' in part['body']:
-                                new_email['body'] += base64.urlsafe_b64decode(part['body']['data']).decode('UTF-8')
+                                textBody = base64.urlsafe_b64decode(part['body']['data']).decode('UTF-8')
+                                new_email['body'] += f"\nText body of email: {textBody}. "
                             else:
                                 print("No data found in the part body.")
 
-                # print(f"new email received: {new_email['body']}, {new_email['attachments']}")
+                # print(f"new email received: {new_email['body']}")
                 return new_email
                 
     except Exception as e:
@@ -179,6 +213,9 @@ Returns:
     dict: A dictionary containing the subject and body of the drafted reply email.
 """
 def draftEmail(email, old_collection):
+    repo_id = "mistralai/Mistral-7B-Instruct-v0.3"
+    llm = HuggingFaceEndpoint(repo_id=repo_id, max_new_tokens=155, temperature=0.7)
+
     # Perform a query search with the email body
     query_results = old_collection.query(
         query_texts=[email["body"]],
@@ -190,7 +227,7 @@ def draftEmail(email, old_collection):
     reply_subject = f"Re: {email['subject']}"
 
     # Prompt for the email body
-    body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Include only the body of the email:"
+    body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Do not include Subject in the mails:"
     reply_draft = llm.invoke(body_prompt)
 
     # Combine subject and body drafts into the final email format
