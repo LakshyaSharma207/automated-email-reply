@@ -33,6 +33,7 @@ def transcribe_audio(audio_file_path):
     if response.status_code == 200:
         transcription = response.json()
         return transcription['text']
+
     else:
         print(f"Error: {response.status_code}, {response.text}")
         return None
@@ -88,6 +89,13 @@ def get_unread_messages():
                     id=message['id']
                 ).execute()
                 
+                # Mark the message as read
+                service.users().messages().modify(
+                    userId='me',
+                    id=message['id'],
+                    body={'removeLabelIds': ['UNREAD']}
+                ).execute()
+
                 # Get email subject and body
                 new_email = {
                     'subject': '',
@@ -182,10 +190,13 @@ def get_unread_messages():
 def home():
     emails = []
     if request.method == 'POST':
-        # Fetch unread emails when the button is clicked
-        email = get_unread_messages()
-        if email:
-            emails.append(email)
+        # Start checking emails periodically
+        email_thread = threading.Thread(target=check_emails_periodically)
+        email_thread.daemon = True
+        email_thread.start()
+
+        emails = get_unread_messages()
+        print(emails)
 
     # Render the template with the emails
     return render_template('index.html', emails=emails)
@@ -217,17 +228,44 @@ def draftEmail(email, old_collection):
     llm = HuggingFaceEndpoint(repo_id=repo_id, max_new_tokens=155, temperature=0.7)
 
     # Perform a query search with the email body
-    query_results = old_collection.query(
-        query_texts=[email["body"]],
-        n_results=4
+    # query_results = old_collection.query(
+    #     query_texts=[email["body"]],
+    #     n_results=4
+    # )
+
+    # get reply history (untested)
+    thread_context = old_collection.query(
+        query_texts=[email["subject"]],
+        filter={"thread_id": email["thread_id"]},
+        n_results=10
     )
-    context_chromadb = query_results["documents"]
+    sorted_context = sorted(thread_context["documents"], key=lambda x: x['timestamp'])
+
+    # context_chromadb = query_results["documents"]
     
     # reply for the mail
     reply_subject = f"Re: {email['subject']}"
 
-    # Prompt for the email body
-    body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Do not include Subject in the mails:"
+    # Prompt for the email sent to LLM 
+    timeline = "\n".join(
+        [f"From: {doc['sender']}, To: {email['to_email']}, Reply Depth in conversation: {doc['reply_depth']}, Timestamp: {doc['timestamp']}\n{doc['text']}" for doc in sorted_context]
+    )
+
+    # new email chain aware prompt
+    body_prompt = f"""
+    Current Email:
+    From: {email['from_email']}
+    To: {email['to_email']}
+    Subject: {email['subject']}
+    Body: {email['body']}
+
+    Timeline of Previous Emails:
+    {timeline}
+
+    Task: Draft a professional and concise reply to this email. Do not include the subject in your reply. Use the context of previous emails where necessary:
+    """
+    # old prompt
+    # body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Do not include Subject in the mails:"
     reply_draft = llm.invoke(body_prompt)
 
     # Combine subject and body drafts into the final email format
