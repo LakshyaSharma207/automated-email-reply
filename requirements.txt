@@ -6,3 +6,5 @@ google-api-python-client
 chromadb
 langchain_community
 langchain-huggingface
+# For Evaluation
+ragas

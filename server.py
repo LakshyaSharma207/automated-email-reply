@@ -12,7 +12,7 @@ import signal
 # initialize LLM
 from langchain_huggingface import HuggingFaceEndpoint
 
-app = Flask(__name__)
+app = Flask(__name__) 
 
 """
 Transcribes audio from the given file path using a remote API.
@@ -28,7 +28,12 @@ def transcribe_audio(audio_file_path):
     with open(audio_file_path, 'rb') as audio_file:
         audio_data = audio_file.read()
 
-    response = requests.post(audio_url, headers=headers, files={'file': audio_data})
+    # Add return_timestamps=True to the payload
+    payload = {
+        'return_timestamps': True
+    }
+
+    response = requests.post(audio_url, headers=headers, files={'file': audio_data}, data=payload)
 
     if response.status_code == 200:
         transcription = response.json()
@@ -180,7 +185,7 @@ def get_unread_messages():
                             else:
                                 print("No data found in the part body.")
 
-                # print(f"new email received: {new_email['body']}")
+                print(f"new email received: {new_email['body']}")
                 return new_email
                 
     except Exception as e:
@@ -191,9 +196,9 @@ def home():
     emails = []
     if request.method == 'POST':
         # Start checking emails periodically
-        email_thread = threading.Thread(target=check_emails_periodically)
-        email_thread.daemon = True
-        email_thread.start()
+        # email_thread = threading.Thread(target=check_emails_periodically)
+        # email_thread.daemon = True
+        # email_thread.start()
 
         emails = get_unread_messages()
         print(emails)
@@ -293,6 +298,30 @@ Handles the reply_all route for the Flask application.
 Returns:
     JSON response containing the status and replies to the fetched emails.
 """
+def send_replies(replies):
+    """
+    Sends the drafted replies using the Gmail API.
+
+    Args:
+        replies (list): A list of dictionaries containing the email details to be sent.
+
+    Returns:
+        list: A list of statuses for each email sent.
+    """
+    statuses = []
+    for reply in replies:
+        try:
+            message = {
+                'raw': base64.urlsafe_b64encode(
+                    f"From: {reply['from_email']}\nTo: {reply['to_email']}\nSubject: {reply['subject']}\n\n{reply['body']}".encode('UTF-8')
+                ).decode('ascii')
+            }
+            sent_message = service.users().messages().send(userId='me', body=message).execute()
+            statuses.append({'id': sent_message['id'], 'status': 'sent'})
+        except Exception as e:
+            statuses.append({'error': str(e), 'status': 'failed'})
+    return statuses
+
 @app.route('/reply_all', methods=['POST'])
 def reply_all():
     emails = []
@@ -307,8 +336,10 @@ def reply_all():
         reply_email = draftEmail(email, a_collection)
         replies.append(reply_email)
 
-    # print(replies)
-    return jsonify({'status': 'success', 'replies': replies}), 200
+    # Send the replies
+    send_statuses = send_replies(replies)
+
+    return jsonify({'status': 'success', 'replies': replies, 'send_statuses': send_statuses}), 200
 
 """
 Cleans up resources before the application shuts down.
@@ -330,7 +361,7 @@ def signal_handler(sig, frame):
     cleanup()  # Call cleanup explicitly if needed
     exit(0)
 
-signal.signal(signal.SIGINT, signal_handler)
+# signal.signal(signal.SIGINT, signal_handler)
 
 if __name__ == '__main__':
     # Gmail API setup
