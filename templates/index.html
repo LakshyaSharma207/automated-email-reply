@@ -57,7 +57,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Email Receiver</h1>
+        <h1>Email Reply Generator</h1>
         <form method="POST">
             <button type="submit">Receive Emails</button>
             <button type="button" id="replyAllButton">Reply to All Emails</button>
@@ -92,15 +92,15 @@
             })
             .then(response => response.json())
             .then(data => {
-                if (data.status === 'success') {
+                if (true) {
                     const replyContainer = document.getElementById('replyContainer');
                     replyContainer.innerHTML = ''; // Clear previous replies
                     data.replies.forEach(reply => {
                         const replyDiv = document.createElement('div');
                         replyDiv.className = 'reply';
                         replyDiv.innerHTML = `<p><strong>Reply to:</strong> ${reply.to_email}</p>
-                                             <p><strong>Subject:</strong> ${reply.subject}</p>
-                                             <p>${reply.body}</p>`;
+                                            <p><strong>Subject:</strong> ${reply.subject}</p>
+                                            <p>${reply.body}</p>`;
                         replyContainer.appendChild(replyDiv);
                     });
                 }

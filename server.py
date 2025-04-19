@@ -9,6 +9,8 @@ import requests
 import atexit
 import signal
 
+unread_emails = []
+
 # initialize LLM
 from langchain_huggingface import HuggingFaceEndpoint
 
@@ -28,12 +30,7 @@ def transcribe_audio(audio_file_path):
     with open(audio_file_path, 'rb') as audio_file:
         audio_data = audio_file.read()
 
-    # Add return_timestamps=True to the payload
-    payload = {
-        'return_timestamps': True
-    }
-
-    response = requests.post(audio_url, headers=headers, files={'file': audio_data}, data=payload)
+    response = requests.post(audio_url, headers=headers, files={'file': audio_data})
 
     if response.status_code == 200:
         transcription = response.json()
@@ -86,6 +83,8 @@ def get_unread_messages():
             q='is:unread in:inbox'
         ).execute()
         messages = results.get('messages', [])
+
+        # unread_emails = []  # List to store all unread emails
 
         if messages:
             for message in messages:
@@ -185,25 +184,30 @@ def get_unread_messages():
                             else:
                                 print("No data found in the part body.")
 
-                print(f"new email received: {new_email['body']}")
-                return new_email
-                
+                unread_emails.append(new_email)  # Add the processed email to the list
+
+        return unread_emails  # Return the list of unread emails
+
     except Exception as e:
         print(f"Error: {str(e)}")
+        return []  # Return an empty list in case of an error
 
 @app.route('/', methods=['GET', 'POST'])
 def home():
     emails = []
     if request.method == 'POST':
-        # Start checking emails periodically
-        # email_thread = threading.Thread(target=check_emails_periodically)
-        # email_thread.daemon = True
-        # email_thread.start()
-
-        emails = get_unread_messages()
-        print(emails)
+        # Fetch all unread emails
+        unread_emails = get_unread_messages()
+        # print(emails)
+        emails = unread_emails
 
     # Render the template with the emails
+    tempemail = [{
+        "subject": "Request for Project Update",
+        "body": "Could you please send me the latest progress update on the AI-based email response system? We need it for the upcoming review meeting. Transcription of included audio: Hey, just a quick note. For tomorrow's meeting, make sure we cover the budget updates, project milestones, and timelines for the next quarter. Let me know if we need to add anything else.",
+        "from_email": "satyam.karde115@nmims.edu.in",
+        "to_email": "lakshya.sharma207@nmims.edu.in"
+    }]
     return render_template('index.html', emails=emails)
 
 """
@@ -233,20 +237,20 @@ def draftEmail(email, old_collection):
     llm = HuggingFaceEndpoint(repo_id=repo_id, max_new_tokens=155, temperature=0.7)
 
     # Perform a query search with the email body
-    # query_results = old_collection.query(
-    #     query_texts=[email["body"]],
-    #     n_results=4
-    # )
+    query_results = old_collection.query(
+        query_texts=[email["body"]],
+        n_results=4
+    )
 
     # get reply history (untested)
-    thread_context = old_collection.query(
-        query_texts=[email["subject"]],
-        filter={"thread_id": email["thread_id"]},
-        n_results=10
-    )
-    sorted_context = sorted(thread_context["documents"], key=lambda x: x['timestamp'])
+    # thread_context = old_collection.query(
+    #     query_texts=[email["subject"]],
+    #     filter={"thread_id": email["thread_id"]},
+    #     n_results=10
+    # )
+    # sorted_context = sorted(thread_context["documents"], key=lambda x: x['timestamp'])
 
-    # context_chromadb = query_results["documents"]
+    context_chromadb = query_results["documents"]
     
     # reply for the mail
     reply_subject = f"Re: {email['subject']}"
@@ -257,20 +261,20 @@ def draftEmail(email, old_collection):
     )
 
     # new email chain aware prompt
-    body_prompt = f"""
-    Current Email:
-    From: {email['from_email']}
-    To: {email['to_email']}
-    Subject: {email['subject']}
-    Body: {email['body']}
+    # body_prompt = f"""
+    # Current Email:
+    # From: {email['from_email']}
+    # To: {email['to_email']}
+    # Subject: {email['subject']}
+    # Body: {email['body']}
 
-    Timeline of Previous Emails:
-    {timeline}
+    # Timeline of Previous Emails:
+    # {timeline}
 
-    Task: Draft a professional and concise reply to this email. Do not include the subject in your reply. Use the context of previous emails where necessary:
-    """
+    # Task: Draft a professional and concise reply to this email. Do not include the subject in your reply. Use the context of previous emails where necessary:
+    # """
     # old prompt
-    # body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Do not include Subject in the mails:"
+    body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Do not include Subject in the mails:"
     reply_draft = llm.invoke(body_prompt)
 
     # Combine subject and body drafts into the final email format
@@ -326,20 +330,29 @@ def send_replies(replies):
 def reply_all():
     emails = []
     # Fetch unread emails
-    email = get_unread_messages()
-    if email:
-        emails.append(email)
+    # email = get_unread_messages()
+    # if email:
+    #     emails.append(email)
     
+    # for testing and debugging
+    tempemail = [{
+        "subject": "Request for Project Update",
+        "body": "Could you please send me the latest progress update on the AI-based email response system? We need it for the upcoming review meeting. Transcription of included audio: Hey, just a quick note. For tomorrow's meeting, make sure we cover the budget updates, project milestones, and timelines for the next quarter. Let me know if we need to add anything else.",
+        "from_email": "satyam.karde115@nmims.edu.in",
+        "to_email": "lakshya.sharma207@nmims.edu.in"
+    }]
     replies = []
     a_collection = update_collection()
-    for email in emails:
+    print(unread_emails)
+    for email in unread_emails:
         reply_email = draftEmail(email, a_collection)
         replies.append(reply_email)
 
     # Send the replies
-    send_statuses = send_replies(replies)
+    # send_statuses = send_replies(replies)
 
-    return jsonify({'status': 'success', 'replies': replies, 'send_statuses': send_statuses}), 200
+    # return jsonify({'status': 'success', 'replies': replies, 'send_statuses': send_statuses}), 200
+    return jsonify({'status': 'success', 'replies': replies}), 200
 
 """
 Cleans up resources before the application shuts down.
