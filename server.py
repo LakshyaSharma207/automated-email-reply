@@ -232,25 +232,28 @@ Args:
 Returns:
     dict: A dictionary containing the subject and body of the drafted reply email.
 """
+
 def draftEmail(email, old_collection):
+    
+# WARNING: HuggingFaceEndpoint has depreciated packages and no longer work as expected
     repo_id = "mistralai/Mistral-7B-Instruct-v0.3"
     llm = HuggingFaceEndpoint(repo_id=repo_id, max_new_tokens=155, temperature=0.7)
 
     # Perform a query search with the email body
-    query_results = old_collection.query(
-        query_texts=[email["body"]],
-        n_results=4
-    )
-
-    # get reply history (untested)
-    # thread_context = old_collection.query(
-    #     query_texts=[email["subject"]],
-    #     filter={"thread_id": email["thread_id"]},
-    #     n_results=10
+    # query_results = old_collection.query(
+    #     query_texts=[email["body"]],
+    #     n_results=4
     # )
-    # sorted_context = sorted(thread_context["documents"], key=lambda x: x['timestamp'])
 
-    context_chromadb = query_results["documents"]
+    # get reply history 
+    thread_context = old_collection.query(
+        query_texts=[email["subject"]],
+        filter={"thread_id": email["thread_id"]},
+        n_results=10
+    )
+    sorted_context = sorted(thread_context["documents"], key=lambda x: x['timestamp'])
+
+    # context_chromadb = query_results["documents"]
     
     # reply for the mail
     reply_subject = f"Re: {email['subject']}"
@@ -261,20 +264,20 @@ def draftEmail(email, old_collection):
     )
 
     # new email chain aware prompt
-    # body_prompt = f"""
-    # Current Email:
-    # From: {email['from_email']}
-    # To: {email['to_email']}
-    # Subject: {email['subject']}
-    # Body: {email['body']}
+    body_prompt = f"""
+    Current Email:
+    From: {email['from_email']}
+    To: {email['to_email']}
+    Subject: {email['subject']}
+    Body: {email['body']}
 
-    # Timeline of Previous Emails:
-    # {timeline}
+    Timeline of Previous Emails:
+    {timeline}
 
-    # Task: Draft a professional and concise reply to this email. Do not include the subject in your reply. Use the context of previous emails where necessary:
-    # """
+    Task: Draft a professional and concise reply to this email. Do not include the subject in your reply. Use the context of previous emails where necessary:
+    """
     # old prompt
-    body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Do not include Subject in the mails:"
+    # body_prompt = f"Email Body:\n{email['body']}, Email Subject:\n{email['subject']}\n\nRelevant Context:\n{context_chromadb}\n\nDraft a reply to this email. Do not include Subject in the mails:"
     reply_draft = llm.invoke(body_prompt)
 
     # Combine subject and body drafts into the final email format
